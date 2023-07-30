@@ -265,7 +265,6 @@ class RawInputDialog(FormDialog):
         reader2.SetDataSpacing(1, 1, 1)
         reader2.SetDataOrigin(0, 0, 0)
 
-        print("reading")
         reader2.Update()
         # read one slice in the middle and display it in a viewer in a modal dialog
         
