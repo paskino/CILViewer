@@ -395,13 +395,13 @@ class CILViewerBase():
     def getVisualisationDownsampling(self):
         return self.visualisation_downsampling
 
-def GetObserverPriority(vtk_object, event_name: str) -> int:
+def GetObserverPriority(vtk_object, event_name: str) -> float:
     '''Given a vtk object and an event name, return the priority of the observer
     
     It is impossible to get an observer from the object programmatically, but
     the string representation of the object contains the observers with priority.
 
-    This code reads the string representation and returns the priority as integer.
+    This code reads the string representation and returns the priority as float.
     '''
     string = str(vtk_object)
 
@@ -424,5 +424,5 @@ def GetObserverPriority(vtk_object, event_name: str) -> int:
 
     for el in eventObservers:
         if el['EventName'] == event_name:
-            return int(el['Priority'])
-    raise ValueError("Event {} not found".format(event_name))
+            return float(el['Priority'])
+    raise ValueError("Event {} not found in object {}".format(event_name, vtk_object))

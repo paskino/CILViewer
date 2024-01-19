@@ -29,6 +29,7 @@ import logging
 class CILInteractorStyle(vtk.vtkInteractorStyle):
 
     def __init__(self, callback):
+        super().__init__()
         self.callback = callback
         self._viewer = callback
         priority = 1.0
@@ -44,7 +45,7 @@ class CILInteractorStyle(vtk.vtkInteractorStyle):
         self.AddObserver('RightButtonReleaseEvent', self.OnRightButtonReleaseEvent, priority)
         self.AddObserver('MouseMoveEvent', self.OnMouseMoveEvent, priority)
 
-        default_CharEvent_priority = GetObserverPriority(self._viewer, "CharEvent")
+        default_CharEvent_priority = GetObserverPriority(self._viewer.iren, "CharEvent")
         self.AddObserver('CharEvent', self.processAndConsumeCharEvent, default_CharEvent_priority + 1)
         self.AddObserver('CharEvent', self.processAndPropagateCharEvent, default_CharEvent_priority + 1)
         self._charEventToProcessAndConsume = ['s', 'w']
@@ -349,6 +350,9 @@ class CILInteractorStyle(vtk.vtkInteractorStyle):
 
     def GetCharEventToConsume(self):
         return self._charEventToProcessAndConsume
+
+    def OnKeyPress(self, interactor, event):
+        self.allCharEvents(interactor.GetKeyCode(), interactor, event)
 
     def allCharEvents(self, keycode, interactor, event):
         if self.GetInputData() is None:
