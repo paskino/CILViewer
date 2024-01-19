@@ -21,7 +21,7 @@ from ccpi.viewer import (ALT_KEY, CONTROL_KEY, SHIFT_KEY, CROSSHAIR_ACTOR, CURSO
                          SLICE_ORIENTATION_XZ, SLICE_ORIENTATION_YZ)
 from ccpi.viewer.CILViewerBase import CILViewerBase
 from ccpi.viewer.utils import Converter
-
+from ccpi.viewer.CILViewerBase import GetObserverPriority
 from ccpi.viewer.widgets import cilviewerBoxWidget
 import logging
 
@@ -32,7 +32,6 @@ class CILInteractorStyle(vtk.vtkInteractorStyle):
         self.callback = callback
         self._viewer = callback
         priority = 1.0
-        high_priority = 10.0
         self.debug = False
 
         self.AddObserver("MouseWheelForwardEvent", self.OnMouseWheelForward, priority)
@@ -45,8 +44,9 @@ class CILInteractorStyle(vtk.vtkInteractorStyle):
         self.AddObserver('RightButtonReleaseEvent', self.OnRightButtonReleaseEvent, priority)
         self.AddObserver('MouseMoveEvent', self.OnMouseMoveEvent, priority)
 
-        self.AddObserver('CharEvent', self.processAndConsumeCharEvent, high_priority)
-        self.AddObserver('CharEvent', self.processAndPropagateCharEvent, high_priority)
+        default_CharEvent_priority = GetObserverPriority(self._viewer, "CharEvent")
+        self.AddObserver('CharEvent', self.processAndConsumeCharEvent, default_CharEvent_priority + 1)
+        self.AddObserver('CharEvent', self.processAndPropagateCharEvent, default_CharEvent_priority + 1)
         self._charEventToProcessAndConsume = ['s', 'w']
         self._charEventToProcessAndPropagate = ['x', 'y', 'z', 'a', 'h', 'l', 'q' , 'e', 'r']
 
@@ -339,9 +339,10 @@ class CILInteractorStyle(vtk.vtkInteractorStyle):
     def processAndConsumeCharEvent(self, interactor, event):
         kc = interactor.GetKeyCode()
         if kc in self.GetCharEventToConsume():
+            # stop propagating the event by setting the keycode to empty
+            # https://discourse.vtk.org/t/consume-a-vtk-event-in-python/13052/3
             interactor.SetKeyCode("")
-        
-        self.allCharEvents(kc, interactor, event)
+            self.allCharEvents(kc, interactor, event)
         
     def GetCharEventToPropagate(self):
         return self._charEventToProcessAndPropagate
