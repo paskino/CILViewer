@@ -10,13 +10,29 @@ from ccpi.viewer.utils.conversion import (Converter, cilRawCroppedReader, cilMet
 class TestCroppedReaders(unittest.TestCase):
 
     def setUp(self):
-        # Generate random 3D array and write to HDF5:
-        np.random.seed(1)
-        shape = (5, 4, 6)  # was 10 times larger
         bits = 8
-        self.input_3D_array = np.random.randint(10, size=shape, dtype=eval(f"np.uint{bits}"))
-        self.input_3D_array = np.reshape(np.arange(self.input_3D_array.size),
-                                         newshape=shape).astype(dtype=eval(f"np.uint{bits}"))
+        shape = (5, 4, 6)
+        size = shape[0] * shape[1] * shape[2]
+        # input_3D_array = np.reshape(np.arange(size), newshape=shape)\
+        #     .astype(dtype=eval(f"np.uint{bits}"))
+
+        input_3D_array = np.zeros(shape).astype(dtype=np.uint8)
+        print(input_3D_array.shape)
+
+        # each slice has the same value i
+        for k in range(shape[2]):
+            for j in range(shape[1]):
+                for i in range(shape[0]):
+                    input_3D_array[i, j, k] = i
+
+        self.input_3D_array = input_3D_array
+        # Generate random 3D array and write to HDF5:
+        # np.random.seed(1)
+        # shape = (5, 4, 6)  # was 10 times larger
+        # bits = 8
+        # self.input_3D_array = np.random.randint(10, size=shape, dtype=eval(f"np.uint{bits}"))
+        # self.input_3D_array = np.reshape(np.arange(self.input_3D_array.size),
+        #                                  newshape=shape).astype(dtype=eval(f"np.uint{bits}"))
         self.raw_type_code = str(self.input_3D_array.dtype)
         bytes_3D_array = bytes(self.input_3D_array)
         self.raw_filename_3D = 'test_3D_data.raw'
@@ -50,15 +66,20 @@ class TestCroppedReaders(unittest.TestCase):
 
         self.tiff_fnames = fnames
 
-    def check_extent(self, reader, target_z_extent):
+    def check_extent(self, reader, target_z_extent, is_fortran):
         reader.Update()
         image = reader.GetOutput()
-        extent = list(image.GetExtent())
+        extent = tuple(image.GetExtent())
         og_shape = np.shape(self.input_3D_array)
-        og_extent = [0, og_shape[2] - 1, 0, og_shape[1] - 1, 0, og_shape[0] - 1]
+        idx = target_z_extent[0]
+        num_slices = target_z_extent[1] - target_z_extent[0]
+        if is_fortran:
+            og_extent = (0, og_shape[2]-1, 0, og_shape[1]-1, idx, idx+num_slices-1)
+        else:
+            og_extent = (idx, idx+num_slices-1, 0, og_shape[1]-1, 0, og_shape[2]-1)
         expected_extent = og_extent
-        expected_extent[4] = target_z_extent[0]
-        expected_extent[5] = target_z_extent[1]
+        # expected_extent[4] = target_z_extent[0]
+        # expected_extent[5] = target_z_extent[1]
         self.assertEqual(extent, expected_extent)
 
     def check_values(self, target_z_extent, read_cropped_image, expected_array=None):
@@ -75,11 +96,12 @@ class TestCroppedReaders(unittest.TestCase):
         reader.SetFileName(self.raw_filename_3D)
         reader.SetTargetZExtent(tuple(target_z_extent))
         reader.SetBigEndian(False)
-        reader.SetIsFortran(False)
+        is_fortran = False
+        reader.SetIsFortran(is_fortran)
         raw_type_code = str(self.input_3D_array.dtype)
         reader.SetTypeCodeName(raw_type_code)
         reader.SetStoredArrayShape(og_shape)
-        self.check_extent(reader, target_z_extent)
+        self.check_extent(reader, target_z_extent, is_fortran)
         self.check_values(target_z_extent, reader.GetOutput())
         # Check raw type code was set correctly:
         self.assertEqual(raw_type_code, reader.GetTypeCodeName())

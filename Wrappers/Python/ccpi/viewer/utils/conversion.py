@@ -145,16 +145,15 @@ class Converter(object):
         img_data = numpy_support.vtk_to_numpy(imgdata.GetPointData().GetScalars())
 
         dims = imgdata.GetDimensions()
-        # print ("vtk2numpy: VTKImageData dims {0}".format(dims))
-
-        # print("chosen order ", order)
-
-        img_data.shape = (dims[2], dims[1], dims[0])
-
-        if (order == 'F'):
-            img_data = numpy.transpose(img_data, [2, 1, 0])
-            img_data = numpy.asfortranarray(img_data)
-
+        
+        img_data_address = id(img_data)
+        
+        img_data.shape = tuple(dims)
+        if order == 'C':
+            img_data.shape = tuple(dims[::-1])
+        
+        assert img_data_address == id(img_data), "img_data has been reshaped in place" 
+        
         return img_data
 
 
@@ -1488,36 +1487,55 @@ class cilBaseCroppedReader(cilReaderInterface):
         is_fortran = self.GetIsFortran()
         bytes_per_element = Converter.vtkType_to_bytes[self.GetOutputVTKType()]
         
-        if is_fortran:
-            shape = list(readshape)
-        else:
-            shape = list(readshape)[::-1]
+        shape = list(readshape)
 
-        offset = 0
-        slice_size = -1
+        # VTK adds 1 to the extent boundary difference to get the total number of slices
+        # in the extent, as they allow to define the extent as [0, 0] for a single slice
+        # https://github.com/Kitware/VTK/blob/caf506fa0a7dd9d3ffe44ed4ba25ff2c4c74f494/IO/Image/vtkImageReader2.cxx#L679-L680
+        slices_to_read = self.GetTargetZExtent()[1] - self.GetTargetZExtent()[0] + 1
         
+        # https://github.com/Kitware/VTK/blob/caf506fa0a7dd9d3ffe44ed4ba25ff2c4c74f494/IO/Image/vtkImageReader2.cxx#L722-L724
+        
+        # Really we should be given the slice shape and the number of slices
+        j = 1
+        if is_fortran:
+            i = 2
+            k = 0
+            extent = (0, shape[i]-1, 0, shape[j]-1,
+                       self.GetTargetZExtent()[0], 
+                       self.GetTargetZExtent()[1])
+            slice_size = shape[i]*shape[j]
+        else:
+            i = 0
+            k = 2 
+            extent = ( self.GetTargetZExtent()[0], 
+                       self.GetTargetZExtent()[1], 
+                       0, shape[j]-1, 0, shape[k]-1)
+            slice_size = shape[k]*shape[j]
+        logger.debug(f"is_fortran {is_fortran} slice_size {slice_size}")
+        logger.debug(f"extent {extent}")
         dimensionality = len(shape)
 
-        if dimensionality == 3:
+        if dimensionality != 3:
+            raise ValueError('Only 3D data is supported')
             # read the centre slice
-            slice_size = shape[1]*shape[0]
-            offset = shape[2]*slice_size//2
+           
+        offset = file_header_length + self.GetTargetZExtent()[0] * bytes_per_element * slice_size
+        logger.info(f"offset {offset} slice_size {slice_size} slices_to_read {slices_to_read} bytes_per_element {bytes_per_element}")
+        tmpdir = tempfile.mkdtemp()
+        chunk_file_name = os.path.join(tmpdir, "chunk.raw")
 
-        rawfname = os.path.join(tempfile.gettempdir(),"test.raw")
-            
-        offset = offset * bytes_per_element
-        slices_to_read = 1
-        if shape[2] > 1:
-            slices_to_read = 2
         try:
-            with open(self.GetFileName(), 'br') as f:
-                f.seek(offset)
-                raw_data = f.read(slice_size*bytes_per_element* slices_to_read)
-                with open(rawfname, 'wb') as f2:
-                    f2.write(raw_data)
+            with open(self.GetFileName(), "rb") as image_file_object:
+                with open(chunk_file_name, "wb") as chunk_file_object:
+                    image_file_object.seek(offset)
+                    chunk_length = slice_size * slices_to_read
+                    chunk = image_file_object.read(chunk_length)
+                    chunk_file_object.write(chunk)
+        
 
             reader = vtk.vtkImageReader2()
-            reader.SetFileName(rawfname)
+            reader.SetFileName(chunk_file_name)
 
             vtktype = self.GetOutputVTKType()
             reader.SetDataScalarType(vtktype)
@@ -1528,21 +1546,14 @@ class cilBaseCroppedReader(cilReaderInterface):
                 reader.SetDataByteOrderToLittleEndian()
 
             reader.SetFileDimensionality(len(shape))
-            vtkshape = shape[:]
-            if not is_fortran:
-                # need to reverse the shape (again)
-                vtkshape = shape[::-1]
-            # vtkshape = shape[:]
-            slice_idx = 0
-            if dimensionality == 3:
-                slice_idx = vtkshape[2]//2
-            extent = (0, vtkshape[0]-1, 0, vtkshape[1]-1, slice_idx, slice_idx+slices_to_read-1)
             reader.SetDataExtent(extent)
             # DataSpacing and DataOrigin should be added to the interface
             reader.SetDataSpacing(1, 1, 1)
             reader.SetDataOrigin(0, 0, 0)
 
             logger.info("reading")
+            # Error on reading are defined here:
+            # https://github.com/Kitware/VTK/blob/caf506fa0a7dd9d3ffe44ed4ba25ff2c4c74f494/IO/Image/vtkImageReader2.cxx#L722-L724
             reader.Update()
 
             # Once we have read the data, update the extent to reflect where
@@ -1560,12 +1571,12 @@ class cilBaseCroppedReader(cilReaderInterface):
 
             return 1
         except Exception as e:
+            print(f"Error {e}")
             logger.error(e)
-        finally:
-            if os.path.exists(rawfname):
-                del reader
-                logger.info("Removing temporary file: {}".format(rawfname))
-                os.remove(rawfname)
+        
+        os.remove(chunk_file_name)
+        os.rmdir(tmpdir)
+        
 
 
 class cilRawCroppedReader(cilBaseCroppedReader, cilRawReaderInterface):
