@@ -754,7 +754,7 @@ class cilMetaImageReaderInterface(cilReaderInterface):
                     self.SetElementFile(element_data_file)
                     break
 
-        self.SetIsFortran(True)
+        self.SetIsFortran(False)
         self.Modified()
 
     def GetIsCompressedData(self):

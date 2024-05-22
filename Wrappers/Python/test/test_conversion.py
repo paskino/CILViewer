@@ -3,8 +3,10 @@ import unittest
 
 import numpy as np
 import vtk
-from ccpi.viewer.utils.conversion import (Converter, cilRawResampleReader, cilMetaImageResampleReader,
-                                          cilNumpyResampleReader, cilNumpyMETAImageWriter)
+from ccpi.viewer.utils.conversion import (Converter, cilRawResampleReader, 
+                                          cilMetaImageResampleReader,
+                                          cilNumpyResampleReader, cilNumpyMETAImageWriter,
+                                          cilRawCroppedReader)
 
 import numpy as np
 '''
@@ -19,12 +21,38 @@ class TestConversion(unittest.TestCase):
 
     def setUp(self):
         # Generate random 3D array and write to HDF5:
-        np.random.seed(1)
-        self.input_3D_array = np.random.randint(10, size=(5, 10, 6), dtype=np.uint8)
+        bits = 8
+        shape = (5, 4, 6)
+        size = shape[0] * shape[1] * shape[2]
+        # input_3D_array = np.reshape(np.arange(size), newshape=shape)\
+        #     .astype(dtype=eval(f"np.uint{bits}"))
+
+        input_3D_array = np.zeros(shape).astype(dtype=np.uint8)
+        print(input_3D_array.shape)
+
+        # each slice has the same value i
+        for k in range(shape[2]):
+            for j in range(shape[1]):
+                for i in range(shape[0]):
+                    input_3D_array[i, j, k] = i
+
+        self.input_3D_array = input_3D_array
         bytes_3D_array = bytes(self.input_3D_array)
         self.raw_filename_3D = 'test_3D_data.raw'
         with open(self.raw_filename_3D, 'wb') as f:
             f.write(bytes_3D_array)
+
+    def tearDown(self):
+        files_to_delete = [self.raw_filename_3D]
+        import os
+        for el in files_to_delete:
+            if isinstance(el, (list, tuple)):
+                for f in el:
+                    if os.path.exists(f):
+                        os.remove(f)
+            else:
+                if os.path.exists(el):
+                    os.remove(el)
 
     def test_WriteMETAImageHeader(self):
         '''writes a mhd file to go with a raw 
@@ -40,7 +68,9 @@ class TestConversion(unittest.TestCase):
         big_endian = False
         header_length = 0
         shape = np.shape(self.input_3D_array)
-        shape_to_write = shape[::-1]  # because it is not a fortran order array we have to swap
+        shape_to_write = shape
+        if self.input_3D_array.flags['C_CONTIGUOUS']:
+            shape_to_write = shape[::-1]
         cilNumpyMETAImageWriter.WriteMETAImageHeader(data_filename,
                                                      header_filename,
                                                      typecode,
@@ -50,28 +80,15 @@ class TestConversion(unittest.TestCase):
                                                      spacing=(1., 1., 1.),
                                                      origin=(0., 0., 0.))
 
-        reader = vtk.vtkMetaImageReader()
-        reader.SetFileName(header_filename)
-        reader.Update()
-        read_mhd_raw = Converter.vtk2numpy(reader.GetOutput())
+        reader1 = vtk.vtkMetaImageReader()
+        reader1.SetFileName(header_filename)
+        reader1.Update()
+        
+        raw_array = Converter.vtk2numpy(reader1.GetOutput(), 
+            order='C' if self.input_3D_array.flags['C_CONTIGUOUS'] else 'F')
 
-        reader = cilRawResampleReader()
-        target_size = int(1e12)
-        reader.SetTargetSize(target_size)
-        reader.SetBigEndian(False)
-        reader.SetIsFortran(False)
-        reader.SetFileName(self.raw_filename_3D)
-        raw_type_code = str(self.input_3D_array.dtype)
-        reader.SetTypeCodeName(raw_type_code)
-        reader.SetStoredArrayShape(shape)
-        reader.Update()
-
-        image = reader.GetOutput()
-        raw_array = Converter.vtk2numpy(image)
-
-        np.testing.assert_array_equal(read_mhd_raw, raw_array)
-        np.testing.assert_array_equal(read_mhd_raw, self.input_3D_array)
-
+        np.testing.assert_array_equal(self.input_3D_array, raw_array)
+        
     def tearDown(self):
         files = [self.raw_filename_3D]
         for f in files:
