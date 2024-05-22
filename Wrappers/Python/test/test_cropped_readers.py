@@ -72,11 +72,24 @@ class TestCroppedReaders(unittest.TestCase):
         extent = tuple(image.GetExtent())
         og_shape = np.shape(self.input_3D_array)
         idx = target_z_extent[0]
-        num_slices = target_z_extent[1] - target_z_extent[0]
+        num_slices = target_z_extent[1] - target_z_extent[0] + 1
+        # if is_fortran:
+        #     og_extent = (0, og_shape[2]-1, 0, og_shape[1]-1, idx, idx+num_slices-1)
+        # else:
+        #     og_extent = (idx, idx+num_slices-1, 0, og_shape[1]-1, 0, og_shape[2]-1)
+        j = 1
         if is_fortran:
-            og_extent = (0, og_shape[2]-1, 0, og_shape[1]-1, idx, idx+num_slices-1)
+            i = 2
+            k = 0
+            og_extent = (0, og_shape[i]-1, 0, og_shape[j]-1,
+                       target_z_extent[0], 
+                       target_z_extent[1])
         else:
-            og_extent = (idx, idx+num_slices-1, 0, og_shape[1]-1, 0, og_shape[2]-1)
+            i = 0
+            k = 2 
+            og_extent = ( target_z_extent[0], 
+                       target_z_extent[1], 
+                       0, og_shape[j]-1, 0, og_shape[k]-1)
         expected_extent = og_extent
         # expected_extent[4] = target_z_extent[0]
         # expected_extent[5] = target_z_extent[1]
@@ -110,13 +123,15 @@ class TestCroppedReaders(unittest.TestCase):
         readers = [cilNumpyCroppedReader(), cilMetaImageCroppedReader()]
         filenames = [self.numpy_filename_3D, self.meta_filename_3D]
         subtest_labels = ['cilNumpyCroppedReader', 'cilMetaImageCroppedReader']
+        is_fortran = False
         for i, reader in enumerate(readers):
             with self.subTest(reader=subtest_labels[i]):
                 filename = filenames[i]
-                target_z_extent = [1, 3]
+                target_z_extent = (1, 3)
                 reader.SetFileName(filename)
-                reader.SetTargetZExtent(tuple(target_z_extent))
-                self.check_extent(reader, target_z_extent)
+                reader.SetTargetZExtent(target_z_extent)
+                reader.SetIsFortran(is_fortran)
+                self.check_extent(reader, target_z_extent, is_fortran)
                 self.check_values(target_z_extent, reader.GetOutput())
 
     def _setup_tiff_cropped_reader(self, target_z_extent):
