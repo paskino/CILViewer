@@ -92,6 +92,7 @@ from ccpi.viewer.utils.conversion import Converter
 
 img_back = Converter.vtk2numpy(image, 'C')
 
+np.testing.assert_array_equal(img_back, input_3D_array[idx:idx+num_slices+1])
 print(f"img_back.shape {img_back.shape}")
 
 print (f"extent {image.GetExtent()}, expected {(0, shape[2]-1, 0, shape[1]-1, idx, idx+num_slices)}")
