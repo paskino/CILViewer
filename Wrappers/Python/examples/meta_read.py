@@ -11,6 +11,11 @@ import numpy as np
 from ccpi.viewer.utils.conversion import cilNumpyMETAImageWriter
 from ccpi.viewer.utils.conversion import Converter
 
+import logging
+
+logger = logging.getLogger('ccpi.viewer.utils.conversion.*')
+logger.setLevel(logging.DEBUG)
+
 bits = 8
 shape = (5, 4, 6)
 size = shape[0] * shape[1] * shape[2]
@@ -144,12 +149,28 @@ for i in range (read_back.size):
 np.testing.assert_array_equal(input_3D_array, arr)
 
 print ("############## TESTING cilMetaImageCroppedReader ##################")
+input_3D_array = np.ascontiguousarray(input_3D_array)
+rawfname = 'numpy_raw_test_file_{}.raw'.format('fortran' if input_3D_array.flags['F_CONTIGUOUS'] else 'c')
+input_3D_array.tofile(rawfname)
+read_back = np.fromfile(rawfname, dtype=np.uint8)
+
+header_filename = "edo_sucks2.mhd"
+shape_to_write = input_3D_array.shape
+if input_3D_array.flags['C_CONTIGUOUS']:
+    shape_to_write = input_3D_array.shape[::-1]
+cilNumpyMETAImageWriter.WriteMETAImageHeader(rawfname,
+                                                header_filename,
+                                                typecode,
+                                                big_endian,
+                                                header_length,
+                                                shape_to_write,
+                                                spacing=(1., 1., 1.),
+                                                origin=(0., 0., 0.))
+
 
 is_fortran = True
-writtenshape = shape[::-1]
 if input_3D_array.flags['C_CONTIGUOUS']:
     is_fortran = False
-    writtenshape = shape[::-1]
 
 from ccpi.viewer.utils.conversion import cilMetaImageCroppedReader
 reader = cilMetaImageCroppedReader()
@@ -158,7 +179,7 @@ reader.SetTargetZExtent((idx, idx+num_slices))
 reader.SetBigEndian(False)
 reader.SetIsFortran(is_fortran)
 reader.SetTypeCodeName(typecode)
-reader.SetStoredArrayShape(writtenshape)
+reader.SetStoredArrayShape(shape_to_write)
 reader.Update()
 image = reader.GetOutput()
 
@@ -169,18 +190,18 @@ print(f"image.GetDimensions() {image.GetDimensions()}")
 
 # print(f"img_back.shape {img_back.shape}")
 
-print (f"extent {image.GetExtent()}, expected {(0, shape[2]-1, 0, shape[1]-1, idx, idx+num_slices)}")
-for k in range(idx, idx+num_slices):
-    for j in range(shape[1]):
-        for i in range(shape[0]):
-            print ( #input_3D_array[i, j, k], 
-                    int( reader.GetOutput().GetScalarComponentAsDouble(i, j, k, 0) )
-                   )
+# print (f"extent {image.GetExtent()}, expected {(0, shape[2]-1, 0, shape[1]-1, idx, idx+num_slices)}")
+# for k in range(idx, idx+num_slices):
+#     for j in range(shape[1]):
+#         for i in range(shape[0]):
+#             print ( #input_3D_array[i, j, k], 
+#                     int( reader.GetOutput().GetScalarComponentAsDouble(i, j, k, 0) )
+#                    )
 read_back.shape = shape
 print(read_back[1])
-arr = Converter.vtk2numpy(reader.GetOutput(), order='C')
+arr = Converter.vtk2numpy(reader.GetOutput(), order='F')
 print(arr[0])
-
+np.testing.assert_array_equal(read_back[idx:idx+num_slices+1], arr)
 # try:
 #     print(img_back)
 # except Exception as err:

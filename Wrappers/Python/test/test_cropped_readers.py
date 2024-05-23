@@ -254,7 +254,7 @@ class TestCroppedReaders(unittest.TestCase):
 
     def test_tiff_cropped_reader(self):
         target_z_extent = [1, 3]
-        is_fortran = False
+        is_fortran = True
         reader = self._setup_tiff_cropped_reader(tuple(target_z_extent))
         self.check_extent(reader, target_z_extent, is_fortran)
         # Check raw type code was set correctly:

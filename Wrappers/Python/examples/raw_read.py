@@ -51,6 +51,9 @@ img_back = Converter.vtk2numpy(image)
 
 print(f"img_back.shape {img_back.shape}")
 print (f"extent {image.GetExtent()}, expected {(idx, idx+num_slices, 0, shape[1]-1, 0, shape[2]-1)}")
+
+np.testing.assert_array_equal(img_back, input_3D_array[idx:idx+num_slices+1])
+
 try:
     print(img_back)
 except Exception as err:
