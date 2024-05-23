@@ -46,8 +46,8 @@ header_length = 0
 def save_mhd(data_filename, header_filename, input_3D_array, typecode, big_endian, header_length=0):
     shape = np.shape(input_3D_array)
     shape_to_write = shape
-    if input_3D_array.flags['C_CONTIGUOUS']:
-        shape_to_write = shape[::-1]
+    # if input_3D_array.flags['C_CONTIGUOUS']:
+    #     shape_to_write = shape[::-1]
     cilNumpyMETAImageWriter.WriteMETAImageHeader(data_filename,
                                                     header_filename,
                                                     typecode,
@@ -74,6 +74,7 @@ save_mhd(data_filename, header_filename, input_3D_array, typecode, big_endian, h
 
 is_fortran = False
 shape_to_write = input_3D_array.shape
+print(input_3D_array.flags)
 if input_3D_array.flags['F_CONTIGUOUS']:
     is_fortran = True
     shape_to_write = input_3D_array.shape[::-1]
@@ -82,10 +83,7 @@ from ccpi.viewer.utils.conversion import cilMetaImageCroppedReader
 reader = cilMetaImageCroppedReader()
 reader.SetFileName(header_filename)
 reader.SetTargetZExtent((idx, idx+num_slices))
-reader.SetBigEndian(False)
-reader.SetIsFortran(is_fortran)
-reader.SetTypeCodeName(typecode)
-reader.SetStoredArrayShape(shape_to_write)
+reader.SetIsFortran(False)
 reader.Update()
 
 image = reader.GetOutput()
@@ -93,14 +91,12 @@ image = reader.GetOutput()
 print(f"image.GetDimensions() {image.GetDimensions()}")
 from ccpi.viewer.utils.conversion import Converter
 
-img_back = Converter.vtk2numpy(image)
+img_back = Converter.vtk2numpy(image, 'F')
 
-print(f"img_back.shape {img_back.shape}")
-print (f"extent {image.GetExtent()}, expected {(idx, idx+num_slices, 0, shape[1]-1, 0, shape[2]-1)}")
-try:
-    print(img_back)
-except Exception as err:
-    print(f"{err}")
+print(f"img_back.shape {img_back.shape} \ninput_3D_array {input_3D_array[idx:idx+num_slices+1]}")
+print (f"IMG_BACK >>>>>>>>>>> {img_back}")
+print (f"INPUT >>>>>>>>>>> {input_3D_array[idx:idx+num_slices+1]}")
+np.testing.assert_array_equal(img_back, input_3D_array[idx:idx+num_slices+1])
 
 ##### Fortran
 if True:
@@ -139,17 +135,17 @@ if True:
     reader = cilMetaImageCroppedReader()
     reader.SetFileName(header_filename)
     reader.SetTargetZExtent((idx, idx+num_slices))
-    reader.SetBigEndian(False)
-    reader.SetIsFortran(is_fortran)
-    reader.SetTypeCodeName(typecode)
-    reader.SetStoredArrayShape(shape_to_write)
+    # reader.SetBigEndian(False)
+    # reader.SetIsFortran(is_fortran)
+    # reader.SetTypeCodeName(typecode)
+    # reader.SetStoredArrayShape(shape_to_write)
     reader.Update()
     image = reader.GetOutput()
 
     print(f"image.GetDimensions() {image.GetDimensions()}")
     from ccpi.viewer.utils.conversion import Converter
 
-    img_back = Converter.vtk2numpy(image, 'C')
+    img_back = Converter.vtk2numpy(image, 'F')
 
     read_back = np.fromfile(raw_fname, dtype=typecode)
     print(f">>>>>>>>>>>>>>>>>>> {read_back.size}")

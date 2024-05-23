@@ -5,6 +5,19 @@ import numpy as np
 import vtk
 from ccpi.viewer.utils.conversion import (Converter, cilRawCroppedReader, cilMetaImageCroppedReader,
                                           cilNumpyCroppedReader, cilTIFFCroppedReader)
+from ccpi.viewer.utils.conversion import cilNumpyMETAImageWriter
+
+def save_mhd(data_filename, header_filename, input_3D_array, typecode, big_endian, header_length=0):
+    shape = np.shape(input_3D_array)
+    cilNumpyMETAImageWriter.WriteMETAImageHeader(data_filename,
+                                                    header_filename,
+                                                    typecode,
+                                                    big_endian,
+                                                    header_length,
+                                                    shape,
+                                                    spacing=(1., 1., 1.),
+                                                    origin=(0., 0., 0.))
+
 
 
 class TestCroppedReaders(unittest.TestCase):
@@ -49,6 +62,34 @@ class TestCroppedReaders(unittest.TestCase):
         writer.SetInputData(vtk_image)
         writer.SetCompression(False)
         writer.Write()
+
+        # MHD        
+        data_filename = self.raw_filename_3D
+        header_filename = 'test_3D_data.mhd'
+        self.mhd_header = header_filename
+        typecode = self.raw_type_code
+        big_endian = False
+        header_length = 0
+        save_mhd(data_filename, header_filename, self.input_3D_array, typecode, big_endian, header_length)
+
+
+        input_3D_array_f = np.zeros(shape).astype(dtype=typecode)
+        input_3D_array_f = np.asfortranarray(input_3D_array_f)
+        shape = input_3D_array_f.shape[:]
+
+        # each slice has the same value i
+        for i in range(shape[0]):
+            for j in range(shape[1]):
+                for k in range(shape[2]):
+                    input_3D_array[i, j, k] = i
+        # Write File to disk with numpy
+        self.raw_fname_f = 'raw_test_file_fortran.raw'
+        input_3D_array_f.tofile(self.raw_fname_f)
+        self.header_filename_f = 'raw_test_file_fortran.mhd'
+
+        save_mhd(self.raw_fname_f, self.header_filename_f, input_3D_array, typecode, big_endian, header_length)
+
+
         # Write TIFFs
         fnames = []
         arr = self.input_3D_array
@@ -65,6 +106,20 @@ class TestCroppedReaders(unittest.TestCase):
             im.save(fnames[-1])
 
         self.tiff_fnames = fnames
+
+    def tearDown(self):
+        files_to_delete = [self.tiff_fnames, self.meta_filename_3D, 
+                           self.raw_filename_3D, self.numpy_filename_3D,
+                           self.raw_fname_f, self.header_filename_f]
+        import os
+        for el in files_to_delete:
+            if isinstance(el, (list, tuple)):
+                for f in el:
+                    if os.path.exists(f):
+                        os.remove(f)
+            else:
+                if os.path.exists(el):
+                    os.remove(el)
 
     def check_extent(self, reader, target_z_extent, is_fortran):
         reader.Update()
@@ -119,20 +174,77 @@ class TestCroppedReaders(unittest.TestCase):
         # Check raw type code was set correctly:
         self.assertEqual(raw_type_code, reader.GetTypeCodeName())
 
-    def test_meta_and_numpy_cropped_readers(self):
-        readers = [cilNumpyCroppedReader(), cilMetaImageCroppedReader()]
-        filenames = [self.numpy_filename_3D, self.meta_filename_3D]
-        subtest_labels = ['cilNumpyCroppedReader', 'cilMetaImageCroppedReader']
-        is_fortran = False
-        for i, reader in enumerate(readers):
-            with self.subTest(reader=subtest_labels[i]):
-                filename = filenames[i]
-                target_z_extent = (1, 3)
-                reader.SetFileName(filename)
-                reader.SetTargetZExtent(target_z_extent)
+    def _test_cropped_readers(self, reader, label, filename, is_fortran):
+        
+        with self.subTest(reader=label):
+            target_z_extent = (1, 3)
+            reader.SetFileName(filename)
+            reader.SetTargetZExtent(target_z_extent)
+            reader.SetIsFortran(is_fortran)
+            if label == 'cilMetaImageCroppedReader':
+                reader.SetBigEndian(False)
                 reader.SetIsFortran(is_fortran)
-                self.check_extent(reader, target_z_extent, is_fortran)
-                self.check_values(target_z_extent, reader.GetOutput())
+                shape = np.shape(self.input_3D_array)
+                shape_to_write = shape
+                if self.input_3D_array.flags['C_CONTIGUOUS']:
+                    shape_to_write = shape[::-1]
+                    
+                reader.SetTypeCodeName(self.raw_type_code)
+                reader.SetStoredArrayShape(shape_to_write)
+
+            self.check_extent(reader, target_z_extent, is_fortran)
+            self.check_values(target_z_extent, reader.GetOutput())
+    
+    def test_numpy_cropped_reader(self):
+        is_fortran = False
+        return self._test_cropped_readers(cilNumpyCroppedReader(), 
+                                     'cilNumpyCroppedReader',
+                                     self.numpy_filename_3D,
+                                     is_fortran)
+    def test_meta_cropped_reader(self):
+        idx=1
+        num_slices=2
+        
+        from ccpi.viewer.utils.conversion import cilMetaImageCroppedReader
+        reader = cilMetaImageCroppedReader()
+        reader.SetFileName(self.mhd_header)
+        reader.SetTargetZExtent((idx, idx+num_slices))
+        # reader.SetIsFortran(False)
+        reader.Update()
+
+        image = reader.GetOutput()
+
+        print(f"image.GetDimensions() {image.GetDimensions()}")
+        from ccpi.viewer.utils.conversion import Converter
+
+        img_back = Converter.vtk2numpy(image, 'F')
+
+        # print(f"img_back.shape {img_back.shape} \ninput_3D_array {input_3D_array[idx:idx+num_slices+1]}")
+        # print (f"IMG_BACK >>>>>>>>>>> {img_back}")
+        # print (f"INPUT >>>>>>>>>>> {input_3D_array[idx:idx+num_slices+1]}")
+        np.testing.assert_array_equal(img_back, self.input_3D_array[idx:idx+num_slices+1])
+
+    def test_meta_cropped_reader_fortran(self):
+    
+        idx=1
+        num_slices=2
+
+        from ccpi.viewer.utils.conversion import cilMetaImageCroppedReader
+        reader = cilMetaImageCroppedReader()
+        reader.SetFileName(self.header_filename_f)
+        reader.SetTargetZExtent((idx, idx+num_slices))
+        reader.Update()
+        image = reader.GetOutput()
+
+        from ccpi.viewer.utils.conversion import Converter
+
+        img_back = Converter.vtk2numpy(image, 'F')
+
+        read_back = np.fromfile(self.raw_fname_f, dtype=self.raw_type_code)
+    
+        read_back.shape = self.input_3D_array.shape
+        np.testing.assert_array_equal(img_back, read_back[idx:idx+num_slices+1])
+
 
     def _setup_tiff_cropped_reader(self, target_z_extent):
         reader = cilTIFFCroppedReader()
@@ -142,18 +254,20 @@ class TestCroppedReaders(unittest.TestCase):
 
     def test_tiff_cropped_reader(self):
         target_z_extent = [1, 3]
+        is_fortran = False
         reader = self._setup_tiff_cropped_reader(tuple(target_z_extent))
-        self.check_extent(reader, target_z_extent)
+        self.check_extent(reader, target_z_extent, is_fortran)
         # Check raw type code was set correctly:
         self.assertEqual(self.raw_type_code, reader.GetTypeCodeName())
         self.check_values(target_z_extent, reader.GetOutput())
 
     def test_tiff_cropped_reader_when_orientation_set(self):
         target_z_extent = [1, 3]
+        is_fortran = False
         reader = self._setup_tiff_cropped_reader(tuple(target_z_extent))
         reader.SetOrientationType(4)  # this flips the y axis
         expected_array = np.flip(np.copy(self.input_3D_array), axis=1)
-        self.check_extent(reader, target_z_extent)
+        self.check_extent(reader, target_z_extent, is_fortran)
         # Check raw type code was set correctly:
         self.assertEqual(self.raw_type_code, reader.GetTypeCodeName())
         self.check_values(target_z_extent, reader.GetOutput(), expected_array)
