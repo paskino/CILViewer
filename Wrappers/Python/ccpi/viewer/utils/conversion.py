@@ -754,7 +754,7 @@ class cilMetaImageReaderInterface(cilReaderInterface):
                     self.SetElementFile(element_data_file)
                     break
 
-        self.SetIsFortran(False)
+        # self.SetIsFortran(False)
         self.Modified()
 
     def GetIsCompressedData(self):
@@ -1526,7 +1526,10 @@ class cilBaseCroppedReader(cilReaderInterface):
         chunk_file_name = os.path.join(tmpdir, "chunk.raw")
 
         try:
-            with open(self.GetFileName(), "rb") as image_file_object:
+            fname = self.GetFileName()
+            if isinstance(self, cilMetaImageCroppedReader):
+                fname = self.GetElementFile()
+            with open(fname, "rb") as image_file_object:
                 with open(chunk_file_name, "wb") as chunk_file_object:
                     image_file_object.seek(offset)
                     chunk_length = slice_size * slices_to_read
